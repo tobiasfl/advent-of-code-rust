@@ -26,4 +26,23 @@ path = "src/bin/2019/day4.rs"
 name = "2019-day5"
 path = "src/bin/2019/day5.rs"
 
+[[bin]]
+name = "2019-day6"
+path = "src/bin/2019/day6.rs"
+
+[[bin]]
+name = "2019-day7"
+path = "src/bin/2019/day7.rs"
+
+
+[[bin]]
+name = "2023-day1"
+path = "src/bin/2023/day1.rs"
+
+[[bin]]
+name = "2023-day2"
+path = "src/bin/2023/day2.rs"
+
 [dependencies]
+itertools = "0.11.0"
+regex = "1.10.2"

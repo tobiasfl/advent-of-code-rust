@@ -1,4 +1,7 @@
+use std::collections::VecDeque;
 use std::fs;
+use itertools::Itertools;
+use std::iter;
 
 const INFILE_PATH: &str = "infiles/2019/day7.in";
 
@@ -29,7 +32,6 @@ const INFILE_PATH: &str = "infiles/2019/day7.in";
 
 //However, if the instruction modifies the instruction pointer, that value is used and the instruction pointer is not automatically increased.
 
-//in part 2 the input instruction should get 5
 
 #[derive(Debug)]
 enum Parameter {
@@ -41,7 +43,7 @@ enum Parameter {
 enum Instruction {
     Add(Parameter, Parameter, usize),
     Multiply(Parameter, Parameter, usize),
-    Input(usize),
+    Input(usize), // This one will always store 1 at the given address(usize)
     Output(Parameter),
     JumpIfTrue(Parameter, Parameter),
     JumpIfFalse(Parameter, Parameter),
@@ -58,102 +60,175 @@ fn main() {
    
     //let mut test_prog =vec![1001, 1, 2, 3];
 
+    let permutations = all_phase_permutations(0, 5);
 
-    run_program(&program, "1");
-    run_program(&program, "5");
+    let output_signals: Vec<Result<String, String>> = permutations.iter().map(|p| {
+        println!("Running permutation: {:?}", p);
+        let mut last_output = Err(format!("No outputs for permutation:{:?}", p));
+        let mut prev_output_val = String::from("0");
+        for phase_setting in p {
+            last_output = run_program(&program, phase_setting.as_str(), prev_output_val.as_str());
+            prev_output_val = last_output.clone()?;
+        }
+        return last_output 
+    }).collect();
+    let max_output_signal = output_signals.into_iter().flatten().flat_map(|s|  s.parse::<i32>()).max();
+    println!("Part 1 max output signal: {:?}", max_output_signal);
+   
 }
 
 fn parse_input(puzzle_input: &str) -> Vec<String> {
     puzzle_input.split(',').map(|x| x.to_owned()).collect()
 }
 
-fn run_program(program: &Vec<String>, input_instr_param: &str) {
+fn all_phase_permutations(from: usize, to: usize) -> Vec<Vec<String>> {
+    (from..to).map(|d| d.to_string()).permutations(to-from).unique().collect_vec()
+}
+
+//TODO: Could take inputs as a generic type of container
+//TODO: should extract into a separate function that takes one input and returns first signal
+fn run_program(program: &Vec<String>, phase_setting: &str, prev_output: &str) -> Result<String, String> {
     let mut program_copy = program.to_owned();
 
+    let mut inputs = VecDeque::from([phase_setting, prev_output]);
+
+    run_until_halt(&mut program_copy, &mut inputs)    
+}
+
+//TODO: Maybe take Input and Output handlers as arguments?
+fn run_until_halt(program: &mut Vec<String>, inputs: &mut VecDeque<&str>) -> Result<String, String> {
+    let mut last_output = Err(format!("Running program with {:?} did not give an output", inputs));
+
     let mut i = 0;
-    while let Some(instr) = parse_next_instruction(&program_copy, i)  {
-        //println!("{:?}", instr);
-        match instr {
-            Instruction::Add(p1, p2, result_addr) => {
-                let val1 = param_to_val(&program_copy, p1);
-                let val2 = param_to_val(&program_copy, p2);
-                
-                if let Some(output_ref) = program_copy.get_mut(result_addr) {
-                    *output_ref = (val1 + val2).to_string();
-                }
-                i += 4;
-            },
-            Instruction::Multiply(p1, p2, result_addr) => {
-                let val1 = param_to_val(&program_copy, p1);
-                let val2 = param_to_val(&program_copy, p2);
-                
-                if let Some(output_ref) = program_copy.get_mut(result_addr) {
-                    *output_ref = (val1 * val2).to_string();
-                }
-                i += 4;
-            },
-            Instruction::Input(result_addr) => {
-                if let Some(output_ref) = program_copy.get_mut(result_addr) {
-                    *output_ref = String::from(input_instr_param); 
-                }
-                i += 2;
-            },
-            Instruction::Output(Parameter::Position(addr_to_print_from)) => {
-                if let Some(to_print_ref) = program_copy.get_mut(addr_to_print_from) {
-                    println!("Output={}", *to_print_ref);
-                }
-                i += 2;
-            },
-            Instruction::Output(Parameter::Immediate(val_to_print)) => {
-                println!("Output={val_to_print}");
-                i += 2;
-            },
-            Instruction::JumpIfTrue(p1, p2) => {
-                if param_to_val(&program_copy, p1) != 0 {
-                    if let Some(val2) = usize::try_from(param_to_val(&program_copy, p2)).ok() {
-                        i = val2;
-                    }
-                } else {
-                    i += 3;
-                }
-            },
-            Instruction::JumpIfFalse(p1, p2) => {
-                if param_to_val(&program_copy, p1) == 0 {
-                    if let Some(val2) = usize::try_from(param_to_val(&program_copy, p2)).ok() {
-                        i = val2;
-                    }
-                } else {
-                    i += 3;
-                }
-            },
-            Instruction::LessThan(p1, p2, result_addr) => {
-                let val1 = param_to_val(&program_copy, p1);
-                let val2 = param_to_val(&program_copy, p2);
-                
-                if let Some(output_ref) = program_copy.get_mut(result_addr) {
-                    *output_ref = (if val1 < val2 {"1"} else {"0"}).to_string();
-                }
-                
-                i += 4;
-            },
-            Instruction::Equals(p1, p2, result_addr) => {
-                let val1 = param_to_val(&program_copy, p1);
-                let val2 = param_to_val(&program_copy, p2);
-                
-                if let Some(output_ref) = program_copy.get_mut(result_addr) {
-                    *output_ref = (if val1 == val2 {"1"} else {"0"}).to_string();
-                }
-                
-                i += 4;
-            },
-            Instruction::Halt => {
-                println!("Halt");
+
+    while parse_next_instruction(&program, i).is_some()  {
+        match run_instr(program, inputs, i) {
+            Ok(InstrResult::NewInstrIndex(new_i)) => {
+                i = new_i;
+            }
+            Ok(InstrResult::OutputAndNewInstrIndex(ProgramOutput(output), new_i)) => {
+                i = new_i;
+                last_output = Ok(output);
+            }
+            Ok(InstrResult::Halt) => {
+                break;
+            }
+            Err(e) => {
+                println!("{e}");
                 break;
             }
         }
-        //println!("prog index:{i}");
+    }
+    last_output
+}
+
+fn run_program_part_2(program: &Vec<String>) {
+    let mut prev_output = String::from("");
+    let mut next_input = String::from("0");
+
+    let programs: Vec<_> = iter::repeat(program.clone()).zip((5..=9).map(|d| d.to_string())).collect();
+    for (mut program, phase_setting) in programs {
+        let mut i = 0;
+
+        //let mut inputs = VecDeque::from([phase_setting, String::from(prev_output)]);
+        let mut inputs = VecDeque::from([next_input.as_str()]);//TODO: fill this in
+        while parse_next_instruction(&program, i).is_some()  {
+            match run_instr(&mut program, &mut inputs, i) {
+                Ok(InstrResult::NewInstrIndex(new_i)) => {
+                    i = new_i;
+                }
+                Ok(InstrResult::OutputAndNewInstrIndex(ProgramOutput(output), new_i)) => {
+                    i = new_i;
+                    prev_output = output;
+                }
+                Ok(InstrResult::Halt) => {
+                    break;
+                }
+                Err(e) => {
+                    //println!("{e}");
+                    break;
+                }
+            }
+        }
+        //println!("{:?}", prev_output);
     }
 }
+
+
+struct ProgramOutput(String);
+
+enum InstrResult {
+    NewInstrIndex(usize),
+    OutputAndNewInstrIndex(ProgramOutput, usize),
+    Halt
+}
+
+fn run_instr(program: &mut Vec<String>, inputs: &mut VecDeque<&str>, instr_index: usize) -> Result<InstrResult, String> {
+    if let Some(instr) =  parse_next_instruction(&program, instr_index) {
+        let handle_binary_op = |p1: Parameter, p2: Parameter, result_addr: usize, op: fn(i32, i32) -> String, prog: &mut Vec<String>| {
+            let val1 = param_to_val(&prog, p1);
+            let val2 = param_to_val(&prog, p2);
+            
+            if let Some(output_ref) = prog.get_mut(result_addr) {
+                *output_ref = op(val1, val2);
+            }
+        };
+
+        match instr {
+            Instruction::Add(p1, p2, result_addr) => {
+                handle_binary_op(p1, p2, result_addr, |x, y| (x + y).to_string(), program);
+                return Ok(InstrResult::NewInstrIndex(instr_index + 4))
+            }
+            Instruction::Multiply(p1, p2, result_addr) => {
+                handle_binary_op(p1, p2, result_addr, |x, y| (x * y).to_string(), program);
+                return Ok(InstrResult::NewInstrIndex(instr_index + 4))
+            }
+            Instruction::Input(result_addr) => {
+                if let (Some(output_ref), Some(inp)) = (program.get_mut(result_addr), inputs.pop_front()) {
+                    *output_ref = String::from(inp);
+                }
+                return Ok(InstrResult::NewInstrIndex(instr_index + 2))
+            }
+            Instruction::Output(Parameter::Position(addr_to_print_from)) => {
+                let output = program.get(addr_to_print_from).ok_or("Failed to get output from address {addr_to_print_from}")?;
+                return Ok(InstrResult::OutputAndNewInstrIndex(ProgramOutput((*output).to_owned()), instr_index+2))
+            }
+            Instruction::Output(Parameter::Immediate(output)) => {
+                return Ok(InstrResult::OutputAndNewInstrIndex(ProgramOutput(output.to_string()), instr_index+2));
+            }
+            Instruction::JumpIfTrue(p1, p2) => {
+                if param_to_val(&program, p1) != 0 {
+                    return usize::try_from(param_to_val(&program, p2))
+                        .map_err(|_| format!("failed"))
+                        .map(|v2| InstrResult::NewInstrIndex(v2))
+                }
+                return Ok(InstrResult::NewInstrIndex(instr_index+3))
+            }
+            Instruction::JumpIfFalse(p1, p2) => {//TODO: maybe this one should be same handler above but args flipped?
+                if param_to_val(&program, p1) == 0 {
+                    return usize::try_from(param_to_val(&program, p2))
+                        .map_err(|_| format!("failed"))
+                        .map(|v2| InstrResult::NewInstrIndex(v2))
+                }
+                return Ok(InstrResult::NewInstrIndex(instr_index+3))
+            }
+            Instruction::LessThan(p1, p2, result_addr) => {
+                handle_binary_op(p1, p2, result_addr, |x, y| String::from(if x < y {"1"} else {"0"}), program);
+                return Ok(InstrResult::NewInstrIndex(instr_index+4))
+            }
+            Instruction::Equals(p1, p2, result_addr) => {
+                handle_binary_op(p1, p2, result_addr, |x, y| String::from(if x == y {"1"} else {"0"}), program);
+                return Ok(InstrResult::NewInstrIndex(instr_index+4))
+            }
+            Instruction::Halt => {
+                return Ok(InstrResult::Halt);
+            }
+        }
+    } else {
+        return Err(format!("Failed to to parse instr_index {instr_index}"));
+    }
+}
+
 
 fn param_to_val(program: &Vec<String>, param: Parameter) -> i32 {
     match param {
@@ -168,12 +243,10 @@ fn param_to_val(program: &Vec<String>, param: Parameter) -> i32 {
 
 fn parse_next_instruction(program: &Vec<String>, start_index: usize) -> Option<Instruction> {
     let opcode_and_modes = program.get(start_index)?.to_string(); 
-    //println!("parse opcode and modes {opcode_and_modes}");
 
     let start_of_opcode_index = opcode_and_modes.char_indices().rev().nth(1);
 
     let opcode = &opcode_and_modes[start_of_opcode_index.unwrap_or((0, '0')).0..];
-    //println!("parse opcode {opcode}");
     match opcode {
         "01" | "1" | "02" | "2" | "07" | "7" | "08" | "8" => {
             if let Some(&[ref fst_param, ref snd_param, ref result_addr]) = program.get(start_index+1..=start_index+3) {

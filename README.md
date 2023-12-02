@@ -1,1 +1,1 @@
-#Solutions to advent of code written in Rust#
+# Solutions to advent of code written in Rust #
