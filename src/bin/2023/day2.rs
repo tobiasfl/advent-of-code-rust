@@ -1,4 +1,4 @@
-use std::{fs, num::ParseIntError};
+use std::fs;
 
 const INFILE_PATH: &str = "../infiles/2023/day2.in";
 
@@ -17,12 +17,13 @@ fn main() {
         .expect("Did not find {INFILE_PATH}");
    
     let all_games = parse_games(&puzzle_input);
-    //let possible_games = find_possible_games(all_games, 12, 14, 13);
-    //let sum_of_ids = possible_games.iter()
-    //    .map(|(id, _)| *id)
-    //    .reduce(|acc, e| acc + e);
-    //println!("{:?}", sum_of_ids);
+    let possible_games = find_possible_games(all_games, 12, 14, 13);
+    let sum_of_ids = possible_games.iter()
+        .map(|(id, _)| *id)
+        .reduce(|acc, e| acc + e);
+    println!("{:?}", sum_of_ids);
 
+    let all_games = parse_games(&puzzle_input);
     let minimum_sets_of_cubes: Vec<(u32, u32, u32)> = all_games.iter()
         .map(|(_, rounds)| 
              (rounds.into_iter()
