@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::iter;
 use itertools::Itertools;
@@ -16,7 +17,7 @@ fn main() {
     println!("unfolded_n: {unfolded_n}");
 }
 
-fn parse_puzzle_input(input: &str) -> Vec<(String, Vec<u32>)> {
+fn parse_puzzle_input(input: &str) -> Vec<(String, Vec<u64>)> {
     let mut result = Vec::new();
 
     for line in input.split_terminator('\n') {
@@ -29,26 +30,24 @@ fn parse_puzzle_input(input: &str) -> Vec<(String, Vec<u32>)> {
     result
 }
 
-fn possible_arrangements(all_rows: &Vec<(String, Vec<u32>)>) -> u32 {
-    all_rows.iter().map(|r| {find_arrangements(0, 0, 0, r)}).sum()
-    //all_rows.iter().take(1).map(|r| {find_arrangements(0, 0, 0, r)}).sum()
-
-    // 1. memoization and some recursive algorithm?
+fn possible_arrangements(all_rows: &Vec<(String, Vec<u64>)>) -> u64 {
+    let mut memoize_table = HashMap::new();
+    all_rows.iter().map(|r| {find_arrangements(0, 0, 0, r, &mut memoize_table)}).sum()
 }
 
-fn unfold<'a>((row, nums): &'a (String, Vec<u32>)) -> (String, Vec<u32>) {
+fn unfold<'a>((row, nums): &'a (String, Vec<u64>)) -> (String, Vec<u64>) {
     let new_row = iter::repeat(row).take(5).join("?");
     let new_nums = iter::repeat(nums.clone()).take(5).flatten().collect();
 
     (new_row, new_nums)
 }
 
-fn find_arrangements(char_i: usize, num_i: usize, group_size: u32, r@(row, nums): &(String, Vec<u32>)) -> u32 {
-    if char_i == 0 {
-        println!("ROW: {row} NUMS: {:?}", nums);
-    }
-
-    // out of groups TODO: can be incorporated into end of group case probably
+fn find_arrangements<'a>(char_i: usize, 
+                     num_i: usize, 
+                     group_size: u64, 
+                     r@(row, nums): &'a (String, Vec<u64>), 
+                     memoized_results: &mut HashMap<(usize, usize, u64, &'a (String, Vec<u64>)), u64>) -> u64 {
+    // Out of groups
     if num_i == nums.len() - 1 
         && nums.get(num_i).is_some_and(|n| {*n == group_size}) {
         if row.get(char_i..).is_some_and(|rest| !rest.contains('#'))  {
@@ -59,36 +58,50 @@ fn find_arrangements(char_i: usize, num_i: usize, group_size: u32, r@(row, nums)
     }
     
     if let Some(c) = row.chars().nth(char_i) {
-        // at the end of a group
+        // At the end of a group
         if nums.get(num_i).is_some_and(|n| {*n == group_size}) {
             if c == '#' {
                 return 0
             } else {
-                return find_arrangements(char_i+1, num_i+1, 0,  r);
+                return find_arrangements_memoized(char_i+1, num_i+1, 0,  r, memoized_results);
             }
         }
 
-        // Just starting on a group:
+        // Just starting on a group
         if 0 == group_size {
             if c == '?' {
                 // try both with and without assuming the ? is #
-                return  find_arrangements(char_i+1, num_i, 1, r) + find_arrangements(char_i+1, num_i, 0, r)
+                return  find_arrangements_memoized(char_i+1, num_i, 1, r, memoized_results) 
+                    + find_arrangements_memoized(char_i+1, num_i, 0, r, memoized_results)
             }
             if c == '.' {
-                return  find_arrangements(char_i+1, num_i, 0, r)
+                return  find_arrangements_memoized(char_i+1, num_i, 0, r, memoized_results)
             }
             if c == '#' {
-                return  find_arrangements(char_i+1, num_i, 1, r) 
+                return  find_arrangements_memoized(char_i+1, num_i, 1, r, memoized_results) 
             }
         }
 
-        // assume in the middle of a group
+        // Assume in the middle of a group
         if c == '.' {
             return 0
         } else {
-            return find_arrangements(char_i+1, num_i, group_size+1, r) 
+            return find_arrangements_memoized(char_i+1, num_i, group_size+1, r, memoized_results) 
         }
     }
 
     0
+}
+
+fn find_arrangements_memoized<'a>(char_i: usize, 
+                     num_i: usize, 
+                     group_size: u64, 
+                     r: &'a (String, Vec<u64>), 
+                     memoized_results: &mut HashMap<(usize, usize, u64, &'a (String, Vec<u64>)), u64>) -> u64 {
+    if let Some(result) = memoized_results.get(&(char_i, num_i, group_size, r)) {
+        return *result
+    }
+    let result = find_arrangements(char_i, num_i, group_size, r, memoized_results);
+    memoized_results.insert((char_i, num_i, group_size, r), result);
+    result
 }
